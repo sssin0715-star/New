@@ -366,6 +366,32 @@ body {
 .modal h2 { font-size: 17px; margin: 0 0 4px; color: var(--ink); }
 .modal .modal-when { color: var(--accent); font-weight: 800; font-size: 14px; margin: 0 0 18px; }
 
+/* 예약 관련 안내는 사용자가 보고 있는 모달 안에서 직접 보여줍니다. 화면
+   구석에 띄우는 토스트는 페이지가 iframe 안에 있을 때 보이지 않을 수 있습니다. */
+.modal-notice {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.modal-done { text-align: center; padding: 4px 0 0; }
+.modal-done .done-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-soft-strong);
+  display: grid;
+  place-items: center;
+  margin: 0 auto 16px;
+}
+.modal-done h2 { margin: 0 0 8px; }
+.modal-done .done-when { color: var(--accent); font-weight: 800; font-size: 17px; margin: 0 0 6px; }
+.modal-done .done-sub { margin: 0; color: var(--ink-soft); font-size: 13px; }
+
 .field { margin-bottom: 14px; }
 .field label { display: block; font-size: 12.5px; font-weight: 700; color: var(--ink-soft); margin-bottom: 6px; }
 .field input, .field select, .field textarea {
@@ -533,7 +559,8 @@ var ICON_PATHS = {
   trash: '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="m19 6-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
   arrowLeft: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
   info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="8" x2="12" y2="8"/>',
-  sheet: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/>'
+  sheet: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>'
 };
 function icon(name, size) {
   var s = size || 18;
@@ -660,6 +687,9 @@ var isAdmin = false;
 var adminCode = "";
 var adminState = null;
 var pendingSlotId = null;
+var doneSlotId = null;      // 예약 완료 화면을 띄울 슬롯
+var modalNotice = "";       // 모달 안에 보여줄 안내·오류 문구
+var bookingDraft = null;    // 다시 그릴 때 입력값 유지
 var busy = false;
 
 function esc(s) {
@@ -718,41 +748,72 @@ function refresh() {
 /* ---- booking ---- */
 function openBooking(slotId) {
   pendingSlotId = slotId;
+  doneSlotId = null;
+  modalNotice = "";
+  bookingDraft = null;
   render();
   setTimeout(function () {
     var el = document.getElementById("bookingName");
     if (el) el.focus();
   }, 30);
 }
-function closeBooking() { pendingSlotId = null; render(); }
+function closeBooking() {
+  pendingSlotId = null;
+  doneSlotId = null;
+  modalNotice = "";
+  bookingDraft = null;
+  render();
+}
+function closeDone() {
+  doneSlotId = null;
+  pendingSlotId = null;
+  modalNotice = "";
+  render();
+}
+
+/* 입력값을 다시 그릴 때 잃지 않도록 들고 있습니다. */
+function readBookingForm() {
+  var v = function (id) { var el = document.getElementById(id); return el ? el.value.trim() : ""; };
+  return { name: v("bookingName"), email: v("bookingEmail"), phone: v("bookingPhone") };
+}
+
+function failBooking(message) {
+  modalNotice = message;
+  busy = false;
+  render();
+}
 
 function confirmBooking() {
-  if (busy) return;
-  var v = function (id) { var el = document.getElementById(id); return el ? el.value.trim() : ""; };
-  var name = v("bookingName"), email = v("bookingEmail"), phone = v("bookingPhone");
+  if (busy || doneSlotId) return;
+  var form = readBookingForm();
+  bookingDraft = form;
 
-  if (!name) { showToast("이름을 입력해주세요."); return; }
-  if (name.length > 20) { showToast("이름은 20자 이내로 입력해주세요."); return; }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast("이메일 주소를 확인해주세요."); return; }
-  if (phone.replace(/[^0-9]/g, "").length < 9) { showToast("연락처를 확인해주세요."); return; }
+  if (!form.name) { failBooking("이름을 입력해주세요."); return; }
+  if (form.name.length > 20) { failBooking("이름은 20자 이내로 입력해주세요."); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) { failBooking("이메일 주소를 확인해주세요."); return; }
+  if (form.phone.replace(/[^0-9]/g, "").length < 9) { failBooking("연락처를 확인해주세요."); return; }
 
   var slotId = pendingSlotId;
+  modalNotice = "";
   busy = true;
   render();
 
-  API.book({ slotId: slotId, name: name, email: email, phone: phone })
+  API.book({ slotId: slotId, name: form.name, email: form.email, phone: form.phone })
     .then(function (res) {
       if (!res || !res.ok) {
-        showToast((res && res.message) || "예약하지 못했어요. 다시 시도해주세요.");
+        modalNotice = (res && res.message) || "예약하지 못했어요. 다시 시도해주세요.";
         return refresh();
       }
-      mine[slotId] = { name: name, cancelCode: res.cancelCode };
+      mine[slotId] = { name: form.name, cancelCode: res.cancelCode };
       lsSet(LS_MINE, mine);
-      pendingSlotId = null;
-      showToast(fmtWhen(slotId) + " 예약이 확정되었어요.");
+      // 모달을 닫지 않고 완료 화면으로 바꿉니다. 보고 있던 자리에서 결과를
+      // 확인할 수 있어야 하기 때문입니다.
+      doneSlotId = slotId;
+      modalNotice = "";
+      bookingDraft = null;
       return refresh();
     })
-    .catch(function () { showToast("서버에 연결하지 못했어요. 잠시 후 다시 시도해주세요."); })
+    .catch(function () { modalNotice = "서버에 연결하지 못했어요. 잠시 후 다시 시도해주세요."; })
     .then(function () { busy = false; render(); });
 }
 
@@ -983,16 +1044,28 @@ function renderVisitor() {
     "<div><strong>서버에 연결하지 못했어요.</strong><br>잠시 후 자동으로 다시 시도합니다.</div></div></div>";
 
   var modalHtml = "";
-  if (pendingSlotId) {
+  if (doneSlotId) {
+    modalHtml = '<div class="overlay" id="overlay"><div class="modal" role="dialog" aria-modal="true" aria-label="예약 완료">' +
+      '<div class="modal-done">' +
+      '<div class="done-mark">' + icon("check", 24) + "</div>" +
+      "<h2>예약이 확정되었어요</h2>" +
+      '<p class="done-when tabular">' + esc(fmtWhen(doneSlotId)) + "</p>" +
+      '<p class="done-sub">담당자가 확인한 뒤 입력하신 이메일로 안내드려요.<br>' +
+      "변경이 필요하면 이 화면에서 직접 취소하고 다시 예약하시면 됩니다.</p>" +
+      '<div class="btn-row"><button class="btn primary block" id="btnCloseDone" type="button">확인</button></div>' +
+      "</div></div></div>";
+  } else if (pendingSlotId) {
+    var draft = bookingDraft || { name: "", email: "", phone: "" };
     modalHtml = '<div class="overlay" id="overlay"><div class="modal" role="dialog" aria-modal="true" aria-label="면담 시간 예약">' +
       "<h2>면담 시간 예약</h2>" +
       '<p class="modal-when tabular">' + esc(fmtWhen(pendingSlotId)) + "</p>" +
+      (modalNotice ? '<p class="modal-notice" role="alert">' + esc(modalNotice) + "</p>" : "") +
       '<div class="field"><label for="bookingName">이름</label>' +
-      '<input id="bookingName" type="text" maxlength="20" placeholder="예: 홍길동" autocomplete="name" /></div>' +
+      '<input id="bookingName" type="text" maxlength="20" placeholder="예: 홍길동" autocomplete="name" value="' + esc(draft.name) + '" /></div>' +
       '<div class="field"><label for="bookingEmail">이메일</label>' +
-      '<input id="bookingEmail" type="email" maxlength="60" placeholder="example@tta.or.kr" autocomplete="email" /></div>' +
+      '<input id="bookingEmail" type="email" maxlength="60" placeholder="example@tta.or.kr" autocomplete="email" value="' + esc(draft.email) + '" /></div>' +
       '<div class="field"><label for="bookingPhone">연락처</label>' +
-      '<input id="bookingPhone" type="tel" maxlength="20" placeholder="010-0000-0000" autocomplete="tel" />' +
+      '<input id="bookingPhone" type="tel" maxlength="20" placeholder="010-0000-0000" autocomplete="tel" value="' + esc(draft.phone) + '" />' +
       '<p class="field-hint">담당자가 확인한 뒤 입력하신 이메일로 안내드려요.</p></div>' +
       '<div class="btn-row"><button class="btn ghost" id="btnCancelBooking" type="button"' + (busy ? " disabled" : "") + ">취소</button>" +
       '<button class="btn primary" id="btnConfirmBooking" type="button" style="flex:1"' + (busy ? " disabled" : "") + ">" +
@@ -1133,9 +1206,16 @@ function wireEvents() {
     btn.addEventListener("click", function () { openBooking(btn.getAttribute("data-slot")); });
   });
   var overlay = document.getElementById("overlay");
-  if (overlay) overlay.addEventListener("click", function (e) { if (e.target === overlay && !busy) closeBooking(); });
+  if (overlay) {
+    overlay.addEventListener("click", function (e) {
+      if (e.target !== overlay || busy) return;
+      if (doneSlotId) closeDone();
+      else closeBooking();
+    });
+  }
 
   var el;
+  if ((el = document.getElementById("btnCloseDone"))) el.addEventListener("click", closeDone);
   if ((el = document.getElementById("btnCancelBooking"))) el.addEventListener("click", closeBooking);
   if ((el = document.getElementById("btnConfirmBooking"))) el.addEventListener("click", confirmBooking);
   if ((el = document.getElementById("bookingPhone"))) {
