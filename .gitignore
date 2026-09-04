@@ -1,0 +1,12 @@
+# 개인정보가 들어갈 수 있는 파일은 공개 저장소에 올리지 않습니다.
+*.csv
+*.xlsx
+예약*.json
+secrets*
+.clasp.json
+
+# OS / 편집기
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
