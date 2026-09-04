@@ -358,17 +358,26 @@ async function serveStatic(pathname, res) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let raw = "";
+    // 버퍼로 모았다가 한 번에 디코딩합니다. 청크를 문자열로 이어 붙이면
+    // 한글처럼 여러 바이트인 문자가 청크 경계에서 쪼개져 깨집니다.
+    const chunks = [];
+    let size = 0;
     req.on("data", (chunk) => {
-      raw += chunk;
-      if (raw.length > MAX_BODY) {
+      size += chunk.length;
+      if (size > MAX_BODY) {
         reject(new Error("body too large"));
         req.destroy();
+        return;
       }
+      chunks.push(chunk);
     });
     req.on("end", () => {
+      if (size === 0) {
+        resolve({});
+        return;
+      }
       try {
-        resolve(raw ? JSON.parse(raw) : {});
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
       } catch {
         reject(new Error("bad json"));
       }

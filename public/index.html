@@ -687,7 +687,7 @@ function slotStatus(id) {
   return "available";
 }
 
-/* 담당자가 시트에서 지운 예약은 내 화면에서도 사라져야 합니다. */
+/* 담당자가 취소한 예약은 내 화면에서도 사라져야 합니다. */
 function pruneMine() {
   var changed = false;
   Object.keys(mine).forEach(function (id) {
@@ -948,7 +948,9 @@ function renderVisitor() {
             if (st === "blocked") {
               return '<button type="button" class="slot-row blocked" disabled><span class="status">마감</span></button>';
             }
-            return '<button type="button" class="slot-row available" data-slot="' + esc(s.id) + '"' + (busy ? " disabled" : "") + ">" +
+            // 버튼 안이 시각·상태 두 조각이라, 읽어줄 이름을 따로 붙입니다.
+            return '<button type="button" class="slot-row available" data-slot="' + esc(s.id) + '" ' +
+              'aria-label="' + esc(fmtWhen(s.id)) + ' 예약하기"' + (busy ? " disabled" : "") + ">" +
               '<span class="time tabular">' + esc(s.time) + "</span>" +
               '<span class="status">예약 가능</span></button>';
           }).join("");
@@ -1088,7 +1090,7 @@ function renderAdmin() {
 
     '<div class="section-block">' +
     '<div class="section-head"><div><p class="section-title">예약자 달력</p>' +
-    '<p class="section-sub">총 ' + adminState.bookings.length + "건 · 예약자 정보는 이 화면과 스프레드시트에만 있습니다.</p></div>" +
+    '<p class="section-sub">총 ' + adminState.bookings.length + "건 · 예약자 정보는 관리자 코드로 들어온 이 화면에만 표시됩니다.</p></div>" +
     '<div class="section-tools">' +
     '<button type="button" class="pill-btn" id="btnExport">' + icon("sheet", 15) + "<span>CSV 내려받기</span></button>" +
     '<span class="section-icon">' + icon("calendarCheck", 20) + "</span></div></div>" +
