@@ -1,9 +1,13 @@
-# 개인정보가 들어갈 수 있는 파일은 공개 저장소에 올리지 않습니다.
+# 예약자 개인정보가 들어 있는 저장소 — 절대 커밋하지 않습니다.
+data/
 *.csv
 *.xlsx
-예약*.json
-secrets*
-.clasp.json
+
+# Node
+node_modules/
+npm-debug.log*
+.env
+.env.*
 
 # OS / 편집기
 .DS_Store

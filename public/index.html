@@ -511,19 +511,12 @@ button.btn.small { font-size: 13px; padding: 9px 14px; border-radius: 999px; }
 /* =====================================================================
    신규입사자 면담 예약 — 화면
 
-   이 파일 하나가 두 곳 모두에서 동작합니다.
-     · GitHub Pages 등 정적 호스팅  → 아래 API_BASE 주소를 JSONP 로 호출
-     · 앱스스크립트 웹앱 안         → google.script.run 을 그대로 사용
+   같은 서버(server.js)의 /api/* 를 호출합니다. 같은 출처라서 CORS 설정도
+   별도 주소 설정도 필요 없습니다.
 
-   예약 데이터는 전부 앱스스크립트(스프레드시트)에 있습니다. 이 화면에는
-   예약자 개인정보가 저장되지 않고, 담당자 화면의 명단은 서버가 관리자
-   코드를 확인한 뒤에만 내려줍니다.
+   예약자 개인정보는 이 화면에 저장되지 않습니다. 방문자에게는 "어느 시간이
+   찼는지"만 내려오고, 명단은 서버가 관리자 코드를 확인한 뒤에만 보냅니다.
    ===================================================================== */
-
-/* ▼▼▼ 배포 후 여기만 바꾸세요 ▼▼▼
-   앱스스크립트 "배포 → 웹 앱"에서 받은 URL (끝이 /exec 인 주소) */
-var API_BASE = "";
-/* ▲▲▲ 여기까지 ▲▲▲ */
 
 var DOW = ["일", "월", "화", "수", "목", "금", "토"];
 var LS_MINE = "tta_interview_my_bookings_v1";
@@ -625,77 +618,29 @@ function lsSet(key, value) {
 }
 
 /* ---- server bridge ---- */
-function hasGs() {
-  return typeof google !== "undefined" && google.script && google.script.run;
+function post(path, payload) {
+  return fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload || {})
+  }).then(function (res) { return res.json(); });
 }
 
-function gsCall(fnName, args) {
-  return new Promise(function (resolve, reject) {
-    var runner = google.script.run
-      .withSuccessHandler(resolve)
-      .withFailureHandler(reject);
-    runner[fnName].apply(runner, args || []);
-  });
-}
-
-var jsonpSeq = 0;
-function jsonp(params) {
-  return new Promise(function (resolve, reject) {
-    if (!API_BASE) { reject(new Error("no-api-base")); return; }
-    var cb = "__jsonp_cb_" + (++jsonpSeq) + "_" + Date.now();
-    var script = document.createElement("script");
-    var timer = setTimeout(function () { cleanup(); reject(new Error("timeout")); }, 25000);
-
-    function cleanup() {
-      clearTimeout(timer);
-      try { delete window[cb]; } catch (e) { window[cb] = undefined; }
-      if (script.parentNode) script.parentNode.removeChild(script);
-    }
-
-    window[cb] = function (data) { cleanup(); resolve(data); };
-
-    var qs = Object.keys(params).map(function (k) {
-      return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]);
-    }).join("&");
-
-    script.src = API_BASE + (API_BASE.indexOf("?") === -1 ? "?" : "&") + qs + "&callback=" + cb;
-    script.onerror = function () { cleanup(); reject(new Error("network")); };
-    document.head.appendChild(script);
-  });
-}
-
-/* 두 경로를 같은 모양으로 감싸, 화면 코드는 어디서 도는지 몰라도 됩니다. */
 var API = {
   state: function () {
-    return hasGs() ? gsCall("getPublicState") : jsonp({ action: "state" });
+    return fetch("/api/state", { cache: "no-store" }).then(function (r) { return r.json(); });
   },
-  book: function (p) {
-    return hasGs()
-      ? gsCall("book", [p])
-      : jsonp({ action: "book", slotId: p.slotId, name: p.name, email: p.email, phone: p.phone });
-  },
+  book: function (p) { return post("/api/book", p); },
   cancelMine: function (slotId, cancelCode) {
-    return hasGs()
-      ? gsCall("cancelMyBooking", [slotId, cancelCode])
-      : jsonp({ action: "cancelMine", slotId: slotId, cancelCode: cancelCode });
+    return post("/api/cancel", { slotId: slotId, cancelCode: cancelCode });
   },
-  adminState: function (code) {
-    return hasGs() ? gsCall("getAdminState", [code]) : jsonp({ action: "adminState", code: code });
-  },
-  adminSave: function (code, next) {
-    return hasGs()
-      ? gsCall("adminSaveConfig", [code, next])
-      : jsonp({ action: "adminSave", code: code, data: JSON.stringify(next) });
-  },
+  adminState: function (code) { return post("/api/admin/state", { code: code }); },
+  adminSave: function (code, next) { return post("/api/admin/config", { code: code, config: next }); },
   adminBlock: function (code, slotId, block) {
-    return hasGs()
-      ? gsCall("adminToggleBlock", [code, slotId, block])
-      : jsonp({ action: "adminBlock", code: code, slotId: slotId, block: block ? "true" : "false" });
+    return post("/api/admin/block", { code: code, slotId: slotId, block: block });
   },
   adminCancel: function (code, slotId) {
-    return hasGs()
-      ? gsCall("adminCancelBooking", [code, slotId])
-      : jsonp({ action: "adminCancel", code: code, slotId: slotId });
+    return post("/api/admin/cancel", { code: code, slotId: slotId });
   }
 };
 
@@ -716,8 +661,6 @@ var adminCode = "";
 var adminState = null;
 var pendingSlotId = null;
 var busy = false;
-
-var configured = function () { return hasGs() || !!API_BASE; };
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -754,7 +697,6 @@ function pruneMine() {
 }
 
 function refresh() {
-  if (!configured()) return Promise.resolve();
   return API.state()
     .then(function (next) {
       if (!next || !next.config) return;
@@ -883,9 +825,7 @@ function adminSave() {
     breakStart: breakOn ? get("cfgBreakStart").value : "",
     breakEnd: breakOn ? get("cfgBreakEnd").value : "",
     durationLabel: get("cfgDuration").value.trim(),
-    locationLabel: get("cfgLocation").value.trim(),
-    notifyEmail: get("cfgNotify").value.trim(),
-    confirmEmail: get("cfgConfirmMail").checked
+    locationLabel: get("cfgLocation").value.trim()
   };
   busy = true;
   render();
@@ -893,6 +833,38 @@ function adminSave() {
     .then(function (res) { applyAdminResult(res, "설정을 저장했어요."); })
     .catch(function () { showToast("서버에 연결하지 못했어요."); })
     .then(function () { busy = false; render(); });
+}
+
+function csvCell(v) {
+  var s = String(v == null ? "" : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function exportCsv() {
+  if (!adminState || adminState.bookings.length === 0) { showToast("내보낼 예약이 없어요."); return; }
+  var rows = [["날짜", "요일", "시간", "이름", "이메일", "연락처", "예약일시"]];
+  adminState.bookings.forEach(function (b) {
+    var parts = b.id.split("T");
+    rows.push([
+      parts[0],
+      DOW[parseDateStr(parts[0]).getDay()],
+      parts[1],
+      b.name,
+      b.email,
+      b.phone,
+      b.bookedAt ? new Date(b.bookedAt).toLocaleString("ko-KR") : ""
+    ]);
+  });
+  // 엑셀이 UTF-8 로 열도록 BOM 을 앞에 붙입니다.
+  var csv = "﻿" + rows.map(function (r) { return r.map(csvCell).join(","); }).join("\r\n");
+  var url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "면담예약_" + todayStr() + ".csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
 }
 
 function adminBlock(slotId, block) {
@@ -945,10 +917,7 @@ function renderVisitor() {
   var config = state.config;
   var boardHtml;
 
-  if (!configured()) {
-    boardHtml = '<div class="empty-state"><strong>아직 서버 주소가 연결되지 않았어요.</strong><br>' +
-      "index.html 의 API_BASE 에 앱스스크립트 웹 앱 주소를 넣어주세요.</div>";
-  } else if (!loaded) {
+  if (!loaded) {
     boardHtml = skeletonBoardHtml();
   } else if (!config.active) {
     boardHtml = '<div class="empty-state"><strong>아직 등록된 면담 시간이 없어요.</strong><br>' +
@@ -1007,15 +976,9 @@ function renderVisitor() {
         "</div>";
     }).join("") + "</div>";
 
-  var noticeHtml = "";
-  if (!configured()) {
-    noticeHtml = '<div class="notice-wrap"><div class="notice is-warn">' + icon("info", 18) +
-      "<div><strong>설정이 한 단계 남았어요.</strong><br>" +
-      "<code>docs/index.html</code> 위쪽 <code>API_BASE</code> 에 앱스스크립트 웹 앱 주소(<code>/exec</code>로 끝나는 주소)를 넣고 다시 올려주세요.</div></div></div>";
-  } else if (!online) {
-    noticeHtml = '<div class="notice-wrap"><div class="notice is-warn">' + icon("info", 18) +
-      "<div><strong>서버에 연결하지 못했어요.</strong><br>잠시 후 자동으로 다시 시도합니다.</div></div></div>";
-  }
+  var noticeHtml = online ? "" :
+    '<div class="notice-wrap"><div class="notice is-warn">' + icon("info", 18) +
+    "<div><strong>서버에 연결하지 못했어요.</strong><br>잠시 후 자동으로 다시 시도합니다.</div></div></div>";
 
   var modalHtml = "";
   if (pendingSlotId) {
@@ -1028,14 +991,14 @@ function renderVisitor() {
       '<input id="bookingEmail" type="email" maxlength="60" placeholder="example@tta.or.kr" autocomplete="email" /></div>' +
       '<div class="field"><label for="bookingPhone">연락처</label>' +
       '<input id="bookingPhone" type="tel" maxlength="20" placeholder="010-0000-0000" autocomplete="tel" />' +
-      '<p class="field-hint">입력한 이메일로 예약 확인 메일이 발송됩니다.</p></div>' +
+      '<p class="field-hint">담당자가 확인한 뒤 입력하신 이메일로 안내드려요.</p></div>' +
       '<div class="btn-row"><button class="btn ghost" id="btnCancelBooking" type="button"' + (busy ? " disabled" : "") + ">취소</button>" +
       '<button class="btn primary" id="btnConfirmBooking" type="button" style="flex:1"' + (busy ? " disabled" : "") + ">" +
       (busy ? "예약하는 중..." : "예약 확정") + "</button></div></div></div>";
   }
 
-  var liveClass = !configured() ? "is-off" : !loaded ? "" : online ? "is-live" : "is-off";
-  var liveText = !configured() ? "설정 필요" : !loaded ? "불러오는 중" : online ? "실시간 반영 중" : "연결 안 됨";
+  var liveClass = !loaded ? "" : online ? "is-live" : "is-off";
+  var liveText = !loaded ? "불러오는 중" : online ? "실시간 반영 중" : "연결 안 됨";
 
   return '<div class="topbar"><div class="topbar-inner">' +
     '<div class="brand"><div class="brand-mark">' + icon("calendar", 20) + "</div>" +
@@ -1127,7 +1090,7 @@ function renderAdmin() {
     '<div class="section-head"><div><p class="section-title">예약자 달력</p>' +
     '<p class="section-sub">총 ' + adminState.bookings.length + "건 · 예약자 정보는 이 화면과 스프레드시트에만 있습니다.</p></div>" +
     '<div class="section-tools">' +
-    '<a class="pill-btn" href="' + esc(adminState.sheetUrl) + '" target="_blank" rel="noopener">' + icon("sheet", 15) + "<span>스프레드시트 열기</span></a>" +
+    '<button type="button" class="pill-btn" id="btnExport">' + icon("sheet", 15) + "<span>CSV 내려받기</span></button>" +
     '<span class="section-icon">' + icon("calendarCheck", 20) + "</span></div></div>" +
     rosterBoard + "</div>" +
 
@@ -1158,11 +1121,6 @@ function renderAdmin() {
     '<div class="field-row">' +
     '<div class="field"><label for="cfgDuration">소요 시간 안내</label><input type="text" id="cfgDuration" maxlength="20" value="' + esc(config.durationLabel) + '" /></div>' +
     '<div class="field"><label for="cfgLocation">면담 장소 안내</label><input type="text" id="cfgLocation" maxlength="24" value="' + esc(config.locationLabel) + '" /></div></div>' +
-    '<div class="field"><label for="cfgNotify">예약 알림 받을 이메일</label>' +
-    '<input type="email" id="cfgNotify" maxlength="60" value="' + esc(adminState.notifyEmail) + '" placeholder="비우면 알림을 보내지 않아요" /></div>' +
-    '<div class="field"><label><input type="checkbox" id="cfgConfirmMail"' + (adminState.confirmEmail ? " checked" : "") +
-    ' style="width:auto;margin-right:6px;" />예약자에게 확인 메일 보내기</label>' +
-    '<p class="field-hint">메일은 이 스크립트를 배포한 구글 계정에서 발송됩니다.</p></div>' +
     '<button class="btn primary block" type="button" id="btnSaveConfig"' + (busy ? " disabled" : "") + ">" +
     (busy ? "저장하는 중..." : "설정 저장") + "</button></div></div>";
 }
@@ -1183,6 +1141,7 @@ function wireEvents() {
   }
   if ((el = document.getElementById("btnAdminEnter"))) el.addEventListener("click", enterAdmin);
   if ((el = document.getElementById("btnSaveConfig"))) el.addEventListener("click", adminSave);
+  if ((el = document.getElementById("btnExport"))) el.addEventListener("click", exportCsv);
   if ((el = document.getElementById("btnBackToVisitor"))) {
     el.addEventListener("click", function (e) { e.preventDefault(); exitAdmin(); });
   }
@@ -1220,7 +1179,6 @@ function wireEvents() {
 /* ---- boot ---- */
 (function boot() {
   render();
-  if (!configured()) return;
 
   refresh().then(function () {
     var saved = null;

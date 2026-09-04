@@ -1,0 +1,15 @@
+{
+  "name": "interview-scheduler",
+  "version": "1.0.0",
+  "description": "신규입사자 면담 예약 페이지 — 의존성 없는 Node.js 서버",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true,
+  "license": "MIT"
+}
