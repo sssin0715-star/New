@@ -127,6 +127,10 @@ function ensureSheets_() {
     bk = ss.insertSheet(SHEET_BOOKINGS);
     bk.getRange(1, 1, 1, BOOKING_HEADERS.length).setValues([BOOKING_HEADERS]).setFontWeight('bold');
     bk.setFrozenRows(1);
+    // 예약ID·시간 열은 텍스트로 고정합니다. 두지 않으면 시트가 "2026-09-10T09:30"
+    // 을 날짜로 바꿔버려 슬롯 ID 가 어긋납니다.
+    bk.getRange('A2:A').setNumberFormat('@');
+    bk.getRange('D2:D').setNumberFormat('@');
     bk.setColumnWidth(1, 140);
     bk.setColumnWidth(6, 200);
     bk.setColumnWidth(8, 160);
@@ -201,6 +205,17 @@ function asTimeStr_(v) {
   return pad2_(Number(p[0])) + ':' + pad2_(Number(p[1] || 0));
 }
 function tz_() { return SpreadsheetApp.getActive().getSpreadsheetTimeZone() || 'Asia/Seoul'; }
+
+/**
+ * 예약ID("2026-09-10T09:30")를 문자열로 되돌립니다.
+ * 시트는 이 값을 ISO 날짜로 알아보고 Date 로 바꿔 저장하는데, 그대로 읽으면
+ * "Thu Sep 10 2026 ..." 이 되어 슬롯 ID 와 어긋납니다. 그러면 예약된 시간이
+ * 마감되지 않고 중복 예약 검사도 빠져나갑니다.
+ */
+function asSlotId_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, tz_(), "yyyy-MM-dd'T'HH:mm");
+  return String(v == null ? '' : v).trim();
+}
 function pad2_(n) { return (n < 10 ? '0' : '') + n; }
 
 function parseJsonArray_(v, fallback) {
@@ -291,7 +306,7 @@ function readBookings_() {
   if (last < 2) return out;
   var rows = sh.getRange(2, 1, last - 1, BOOKING_HEADERS.length).getValues();
   for (var i = 0; i < rows.length; i++) {
-    var id = String(rows[i][0]).trim();
+    var id = asSlotId_(rows[i][0]);
     if (!id) continue;
     out.push({
       row: i + 2,
@@ -374,7 +389,13 @@ function book(payload) {
     var cancelCode = Utilities.getUuid();
     var parts = slotId.split('T');
     var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_BOOKINGS);
-    sh.appendRow([
+    var row = sh.getLastRow() + 1;
+
+    // 예약ID 칸을 먼저 텍스트 서식으로 만들어야 시트가 날짜로 바꾸지 않습니다.
+    sh.getRange(row, 1).setNumberFormat('@');
+    sh.getRange(row, 4).setNumberFormat('@');
+
+    sh.getRange(row, 1, 1, BOOKING_HEADERS.length).setValues([[
       slotId,
       parts[0],
       DOW[parseDate_(parts[0]).getDay()],
@@ -384,7 +405,7 @@ function book(payload) {
       phone,
       Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm'),
       cancelCode
-    ]);
+    ]]);
     SpreadsheetApp.flush();
 
     sendMails_(config, { id: slotId, name: name, email: email, phone: phone });
