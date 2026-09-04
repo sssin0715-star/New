@@ -1,0 +1,41 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# configure-pages 가 Pages 를 켜고, deploy-pages 가 배포합니다.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 배포는 한 번에 하나만. 진행 중인 배포를 취소하지는 않습니다.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Pages 설정 (없으면 활성화)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: docs 폴더 업로드
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: 배포
+        id: deployment
+        uses: actions/deploy-pages@v4
